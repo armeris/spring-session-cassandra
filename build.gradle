@@ -9,6 +9,6 @@ group = 'org.armeris.spring-session'
 description = 'Spring Session for Cassandra'
 
 dependencies {
-    compile 'org.springframework.session:spring-session-core:2.0.2.RELEASE'
+    compile 'org.springframework.session:spring-session:1.3.2.RELEASE'
     compile 'org.springframework.data:spring-data-cassandra:2.0.5.RELEASE'
 }

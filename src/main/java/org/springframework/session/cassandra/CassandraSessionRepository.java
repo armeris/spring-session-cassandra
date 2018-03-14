@@ -6,8 +6,10 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.cassandra.core.CassandraTemplate;
+import org.springframework.data.cassandra.core.mapping.Table;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.session.ExpiringSession;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.MapSession;
 import org.springframework.session.Session;
@@ -18,8 +20,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
 
 @Repository
@@ -49,7 +49,7 @@ public class CassandraSessionRepository implements
 
     /**
      * If non-null, this value is used to override the default value for
-     * {@link CassandraSession#setMaxInactiveInterval(Duration)}.
+     * {@link CassandraSession#setMaxInactiveIntervalInSeconds(int)}.
      */
     private Integer defaultMaxInactiveInterval;
 
@@ -71,7 +71,7 @@ public class CassandraSessionRepository implements
     public CassandraSession createSession() {
         CassandraSession session = new CassandraSession();
         if (this.defaultMaxInactiveInterval != null) {
-            session.setMaxInactiveInterval(Duration.ofSeconds(this.defaultMaxInactiveInterval));
+            session.setMaxInactiveIntervalInSeconds(this.defaultMaxInactiveInterval);
         }
         return session;
     }
@@ -87,13 +87,13 @@ public class CassandraSessionRepository implements
     }
 
     @Override
-    public CassandraSession findById(final String id) {
+    public CassandraSession getSession(String id) {
         Select findById = QueryBuilder.select().from(tableName).where(QueryBuilder.eq("id", id)).limit(1);
         final CassandraSession session = cassandraTemplate.selectOne(findById, CassandraSession.class);
 
         if (session != null) {
             if (session.isExpired()) {
-                deleteById(id);
+                delete(id);
             }
             else {
                 return session;
@@ -103,7 +103,7 @@ public class CassandraSessionRepository implements
     }
 
     @Override
-    public void deleteById(final String id) {
+    public void delete(String id) {
         cassandraTemplate.deleteById(id, CassandraSession.class);
     }
 
@@ -177,9 +177,10 @@ public class CassandraSessionRepository implements
         }
     }
 
-    final class CassandraSession implements Session {
+    @Table
+    final class CassandraSession implements ExpiringSession {
 
-        private final Session delegate;
+        private final MapSession delegate;
 
         private final String primaryKey;
 
@@ -196,7 +197,7 @@ public class CassandraSessionRepository implements
             flushImmediateIfNecessary();
         }
 
-        CassandraSession(String primaryKey, Session delegate) {
+        CassandraSession(String primaryKey, MapSession delegate) {
             Assert.notNull(primaryKey, "primaryKey cannot be null");
             Assert.notNull(delegate, "Session cannot be null");
             this.primaryKey = primaryKey;
@@ -223,23 +224,9 @@ public class CassandraSessionRepository implements
             flushImmediateIfNecessary();
         }
 
-        String getPrincipalName() {
-            return PRINCIPAL_NAME_RESOLVER.resolvePrincipal(this);
-        }
-
-        Instant getExpiryTime() {
-            return getLastAccessedTime().plus(getMaxInactiveInterval());
-        }
-
         @Override
         public String getId() {
             return this.delegate.getId();
-        }
-
-        @Override
-        public String changeSessionId() {
-            this.changed = true;
-            return this.delegate.changeSessionId();
         }
 
         @Override
@@ -271,32 +258,28 @@ public class CassandraSessionRepository implements
         }
 
         @Override
-        public Instant getCreationTime() {
+        public long getCreationTime() {
             return this.delegate.getCreationTime();
         }
 
         @Override
-        public void setLastAccessedTime(Instant lastAccessedTime) {
-            this.delegate.setLastAccessedTime(lastAccessedTime);
-            this.changed = true;
-            flushImmediateIfNecessary();
+        public void setLastAccessedTime(long lastAccessedTime) {
+
         }
 
         @Override
-        public Instant getLastAccessedTime() {
+        public long getLastAccessedTime() {
             return this.delegate.getLastAccessedTime();
         }
 
         @Override
-        public void setMaxInactiveInterval(Duration interval) {
-            this.delegate.setMaxInactiveInterval(interval);
-            this.changed = true;
-            flushImmediateIfNecessary();
+        public void setMaxInactiveIntervalInSeconds(int interval) {
+            this.setMaxInactiveIntervalInSeconds(interval);
         }
 
         @Override
-        public Duration getMaxInactiveInterval() {
-            return this.delegate.getMaxInactiveInterval();
+        public int getMaxInactiveIntervalInSeconds() {
+            return 0;
         }
 
         @Override
