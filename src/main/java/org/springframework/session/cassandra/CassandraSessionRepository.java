@@ -40,7 +40,7 @@ public class CassandraSessionRepository implements
 
     private CassandraTemplate cassandraTemplate;
 
-    private CassandraFlushMode cassandraFlushMode = CassandraFlushMode.ON_SAVE;
+    private CassandraFlushMode cassandraFlushMode;
 
     /**
      * The name of database table used by Spring Session to store sessions.
@@ -60,6 +60,11 @@ public class CassandraSessionRepository implements
     public void setTableName(String tableName) {
         Assert.hasText(tableName, "Table name must not be empty");
         this.tableName = tableName.trim();
+    }
+
+    public CassandraSessionRepository(CassandraTemplate cassandraTemplate){
+        this.cassandraTemplate = cassandraTemplate;
+        this.cassandraFlushMode = CassandraFlushMode.ON_SAVE;
     }
 
     @Override
