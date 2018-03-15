@@ -6,12 +6,10 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.cassandra.core.CassandraTemplate;
-import org.springframework.data.cassandra.core.mapping.Table;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.session.ExpiringSession;
 import org.springframework.session.FindByIndexNameSessionRepository;
-import org.springframework.session.MapSession;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.Assert;
@@ -36,8 +34,6 @@ public class CassandraSessionRepository implements
     private static final Log logger = LogFactory
             .getLog(CassandraSessionRepository.class);
 
-    private static final PrincipalNameResolver PRINCIPAL_NAME_RESOLVER = new PrincipalNameResolver();
-
     private CassandraTemplate cassandraTemplate;
 
     private CassandraFlushMode cassandraFlushMode;
@@ -46,6 +42,16 @@ public class CassandraSessionRepository implements
      * The name of database table used by Spring Session to store sessions.
      */
     private String tableName = DEFAULT_TABLE_NAME;
+
+    public String getCleanupCron() {
+        return cleanupCron;
+    }
+
+    public void setCleanupCron(String cleanupCron) {
+        this.cleanupCron = cleanupCron;
+    }
+
+    private String cleanupCron;
 
     /**
      * If non-null, this value is used to override the default value for
@@ -79,9 +85,9 @@ public class CassandraSessionRepository implements
     @Override
     public void save(final CassandraSession session) {
         if (session.isNew()) {
-            cassandraTemplate.insert(session);
+            cassandraTemplate.execute(CassandraTemplate.createInsertQuery(tableName, session, null, cassandraTemplate.getConverter()));
         } else {
-            cassandraTemplate.update(session);
+            cassandraTemplate.execute(CassandraTemplate.createUpdateQuery(tableName, session, null, cassandraTemplate.getConverter()));
         }
         session.clearChangeFlags();
     }
@@ -104,7 +110,7 @@ public class CassandraSessionRepository implements
 
     @Override
     public void delete(String id) {
-        cassandraTemplate.deleteById(id, CassandraSession.class);
+        cassandraTemplate.deleteById(CassandraSession.class, id);
     }
 
     @Override
@@ -129,9 +135,9 @@ public class CassandraSessionRepository implements
     }
 
     public void cleanUpExpiredSessions() {
-        Select deleteExpiredSessions = QueryBuilder.select().from(tableName).where(QueryBuilder.lt("expiry_time", System.currentTimeMillis())).orderBy(QueryBuilder.asc("id"));
+        Select deleteExpiredSessions = QueryBuilder.select("id").from(tableName).where(QueryBuilder.lt("expiryTime", System.currentTimeMillis())).orderBy(QueryBuilder.desc("lastTimeAccessed")).allowFiltering();
         List<CassandraSession> sessions = cassandraTemplate.select(deleteExpiredSessions, CassandraSession.class);
-        cassandraTemplate.delete(sessions);
+        cassandraTemplate.delete(CassandraTemplate.createDeleteQuery(tableName, sessions, null, cassandraTemplate.getConverter()));
 
         if (logger.isDebugEnabled()) {
             logger.debug("Cleaned up expired sessions");
@@ -177,31 +183,36 @@ public class CassandraSessionRepository implements
         }
     }
 
-    @Table
     final class CassandraSession implements ExpiringSession {
 
-        private final MapSession delegate;
-
-        private final String primaryKey;
+        private final String id;
 
         private boolean isNew;
 
         private boolean changed;
 
-        private Map<String, Object> delta = new HashMap<>();
+        private Long creationTime;
+
+        private Long lastAccessedTime;
+
+        private int maxIntervalInSeconds;
+
+        private Map<String, String> data = new HashMap<>();
+
 
         CassandraSession() {
-            this.delegate = new MapSession();
             this.isNew = true;
-            this.primaryKey = UUID.randomUUID().toString();
+            this.creationTime = System.currentTimeMillis();
+            this.id = UUID.randomUUID().toString();
+            this.changed = false;
             flushImmediateIfNecessary();
         }
 
-        CassandraSession(String primaryKey, MapSession delegate) {
-            Assert.notNull(primaryKey, "primaryKey cannot be null");
-            Assert.notNull(delegate, "Session cannot be null");
-            this.primaryKey = primaryKey;
-            this.delegate = delegate;
+        CassandraSession(String id) {
+            Assert.notNull(id, "id cannot be null");
+            this.creationTime = System.currentTimeMillis();
+            this.id = id;
+            this.changed = false;
             flushImmediateIfNecessary();
         }
 
@@ -213,78 +224,75 @@ public class CassandraSessionRepository implements
             return this.changed;
         }
 
-        Map<String, Object> getDelta() {
-            return this.delta;
-        }
-
         void clearChangeFlags() {
             this.isNew = false;
             this.changed = false;
-            this.delta.clear();
-            flushImmediateIfNecessary();
         }
 
         @Override
         public String getId() {
-            return this.delegate.getId();
+            return null;
         }
 
         @Override
         public <T> T getAttribute(String attributeName) {
-            return this.delegate.getAttribute(attributeName);
+            return (T) deserialize(this.data.get(attributeName));
         }
 
         @Override
         public Set<String> getAttributeNames() {
-            return this.delegate.getAttributeNames();
+            Set<String> result = new HashSet<>();
+
+            for(String key : this.data.keySet()){
+                result.add(key);
+            }
+
+            return result;
         }
 
         @Override
         public void setAttribute(String attributeName, Object attributeValue) {
-            this.delegate.setAttribute(attributeName, attributeValue);
-            this.delta.put(attributeName, attributeValue);
             if (PRINCIPAL_NAME_INDEX_NAME.equals(attributeName) ||
                     SPRING_SECURITY_CONTEXT.equals(attributeName)) {
                 this.changed = true;
             }
+            data.put(attributeName, serialize(attributeValue));
             flushImmediateIfNecessary();
         }
 
         @Override
         public void removeAttribute(String attributeName) {
-            this.delegate.removeAttribute(attributeName);
-            this.delta.put(attributeName, null);
-            flushImmediateIfNecessary();
+            this.data.remove(attributeName);
         }
 
         @Override
         public long getCreationTime() {
-            return this.delegate.getCreationTime();
+            return creationTime;
         }
 
         @Override
         public void setLastAccessedTime(long lastAccessedTime) {
-
+            this.lastAccessedTime = lastAccessedTime;
         }
 
         @Override
         public long getLastAccessedTime() {
-            return this.delegate.getLastAccessedTime();
+            return lastAccessedTime;
         }
 
         @Override
         public void setMaxInactiveIntervalInSeconds(int interval) {
-            this.setMaxInactiveIntervalInSeconds(interval);
+            this.maxIntervalInSeconds = interval;
         }
 
         @Override
         public int getMaxInactiveIntervalInSeconds() {
-            return 0;
+            return maxIntervalInSeconds;
         }
 
         @Override
         public boolean isExpired() {
-            return this.delegate.isExpired();
+            return false;
         }
 
         private void flushImmediateIfNecessary() {

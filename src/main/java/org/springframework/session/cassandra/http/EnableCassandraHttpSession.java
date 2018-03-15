@@ -19,6 +19,7 @@ package org.springframework.session.cassandra.http;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.session.MapSession;
+import org.springframework.session.cassandra.CassandraFlushMode;
 import org.springframework.session.config.annotation.web.http.EnableSpringHttpSession;
 import org.springframework.session.cassandra.CassandraSessionRepository;
 import org.springframework.session.web.http.SessionRepositoryFilter;
@@ -90,5 +91,7 @@ public @interface EnableCassandraHttpSession {
 	 * @since 2.0.0
 	 */
 	String cleanupCron() default CassandraHttpSessionConfiguration.DEFAULT_CLEANUP_CRON;
+
+	CassandraFlushMode cassandraFlushMode() default CassandraFlushMode.ON_SAVE;
 
 }

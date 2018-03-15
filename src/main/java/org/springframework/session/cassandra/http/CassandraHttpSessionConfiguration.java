@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.concurrent.DefaultManagedTaskScheduler;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.session.MapSession;
+import org.springframework.session.cassandra.CassandraFlushMode;
 import org.springframework.session.cassandra.CassandraSessionRepository;
 import org.springframework.session.config.annotation.web.http.SpringHttpSessionConfiguration;
 import org.springframework.session.web.http.SessionRepositoryFilter;
@@ -76,16 +77,30 @@ public class CassandraHttpSessionConfiguration extends SpringHttpSessionConfigur
 		Map<String, Object> attributeMap = importMetadata
 				.getAnnotationAttributes(EnableCassandraHttpSession.class.getName());
 		AnnotationAttributes attributes = AnnotationAttributes.fromMap(attributeMap);
-		this.maxInactiveIntervalInSeconds = attributes
-				.getNumber("maxInactiveIntervalInSeconds");
+		if(attributes.getNumber("maxInactiveIntervalInSeconds") != null) {
+			sessionRepository.setDefaultMaxInactiveInterval(attributes
+					.getNumber("maxInactiveIntervalInSeconds"));
+		}else{
+			sessionRepository.setDefaultMaxInactiveInterval(maxInactiveIntervalInSeconds);
+		}
 		String tableNameValue = attributes.getString("tableName");
 		if (StringUtils.hasText(tableNameValue)) {
-			this.tableName = this.embeddedValueResolver
-					.resolveStringValue(tableNameValue);
+			sessionRepository.setTableName(this.embeddedValueResolver
+					.resolveStringValue(tableNameValue));
+		}else{
+			sessionRepository.setTableName(this.tableName);
 		}
 		String cleanupCron = attributes.getString("cleanupCron");
 		if (StringUtils.hasText(cleanupCron)) {
-			this.cleanupCron = cleanupCron;
+			sessionRepository.setCleanupCron(cleanupCron);
+		}else{
+			sessionRepository.setCleanupCron(this.cleanupCron);
+		}
+		CassandraFlushMode cassandraFlushMode = attributes.getEnum("cassandraFlushMode");
+		if (cassandraFlushMode != null) {
+			sessionRepository.setCassandraFlushMode(cassandraFlushMode);
+		}else{
+			sessionRepository.setCassandraFlushMode(CassandraFlushMode.ON_SAVE);
 		}
 	}
 
