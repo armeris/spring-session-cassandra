@@ -32,7 +32,7 @@ public class SessionAttributeSerializer {
 	private final ObjectToStringSerializer serializer = new ObjectToStringSerializer();
 
 	public Map<String, String> convert(Session session) {
-		Map<String, String> result = new HashMap<String, String>();
+		Map<String, String> result = new HashMap<>();
 		for (String attributeName : session.getAttributeNames()) {
 			Object value = session.getAttribute(attributeName);
 			String serializedValue = this.serializer.serializeToString(value);
