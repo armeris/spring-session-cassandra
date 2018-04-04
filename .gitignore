@@ -16,3 +16,6 @@ gradle-app.setting
 .idea/**
 *.iml
 *.ipr
+
+.hg/*
+.hg*
