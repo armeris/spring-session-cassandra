@@ -22,3 +22,4 @@ CREATE TABLE session_by_name (
     id uuid,
     PRIMARY KEY (principal_name, id)
 )
+```
