@@ -5,7 +5,7 @@ repositories {
 apply plugin: 'java'
 apply plugin: 'maven'
 
-group = 'org.armeris.spring-session'
+group = 'org.springframework.data.cassandra'
 description = 'Spring Session for Cassandra'
 
 dependencies {
