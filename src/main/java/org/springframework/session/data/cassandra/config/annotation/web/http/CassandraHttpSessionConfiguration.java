@@ -23,13 +23,13 @@ import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.cassandra.core.CqlOperations;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
 import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.core.type.AnnotationMetadata;
 import org.springframework.data.cassandra.core.CassandraTemplate;
+import org.springframework.data.cassandra.core.cql.CqlOperations;
 import org.springframework.session.SessionRepository;
 import org.springframework.session.config.annotation.web.http.SpringHttpSessionConfiguration;
 import org.springframework.session.data.cassandra.CassandraSessionRepository;
@@ -60,7 +60,7 @@ public class CassandraHttpSessionConfiguration extends SpringHttpSessionConfigur
 
 	@Bean
 	public CqlOperations springSessionCqlOperations(Session session) {
-		return new CassandraTemplate(session);
+		return new CassandraTemplate(session).getCqlOperations();
 	}
 
 	@Bean

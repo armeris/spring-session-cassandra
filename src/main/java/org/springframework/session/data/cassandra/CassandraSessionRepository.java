@@ -17,6 +17,8 @@
 package org.springframework.session.data.cassandra;
 
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +28,6 @@ import java.util.UUID;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.QueryOptions;
-import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.Insert;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
@@ -36,17 +37,14 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import org.springframework.cassandra.core.CqlOperations;
 import org.springframework.data.cassandra.core.CassandraOperations;
+import org.springframework.data.cassandra.core.cql.CqlOperations;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
-import org.springframework.session.ExpiringSession;
+import org.springframework.session.Session;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.MapSession;
-import org.springframework.session.Session;
-import org.springframework.session.data.cassandra.conversion.SessionAttributeDeserializer;
 import org.springframework.session.data.cassandra.conversion.SessionAttributeSerializer;
-import org.springframework.session.jdbc.JdbcOperationsSessionRepository;
 import org.springframework.util.Assert;
 
 
@@ -102,6 +100,7 @@ import org.springframework.util.Assert;
  * </pre>
  *
  * @author Andrew Fitzgerald
+ * @author Rubén Salinas
  */
 public class CassandraSessionRepository implements FindByIndexNameSessionRepository<CassandraSessionRepository.CassandraHttpSession> {
 
@@ -119,7 +118,6 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 
 
 	private final CqlOperations cassandraOperations;
-	private final SessionAttributeDeserializer sessionAttributeDeserializer = new SessionAttributeDeserializer();
 	private final SessionAttributeSerializer sessionAttributeSerializer = new SessionAttributeSerializer();
 	private final TtlCalculator ttlCalculator = new TtlCalculator();
 
@@ -233,32 +231,20 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 		session.onSave();
 	}
 
-
-	public CassandraHttpSession getSession(String id) {
+	@Override
+	public CassandraHttpSession findById(String id) {
 		Select select = QueryBuilder.select("id", "creation_time", "last_accessed", "max_inactive_interval_in_seconds", "attributes")
 				.from(this.tableName);
 		select.where(QueryBuilder.eq("id", UUID.fromString(id)));
 		select.setConsistencyLevel(this.consistencyLevel);
-		Row row = this.cassandraOperations.getSession().execute(select).one();
-		if (row == null) {
-			return null;
-		}
-		long creationTime = row.getLong("creation_time");
-		long lastAccessed = row.getLong("last_accessed");
-		int maxInactiveIntervalInSeconds = row.getInt("max_inactive_interval_in_seconds");
+		CassandraHttpSession result = this.cassandraOperations.queryForObject(select, CassandraHttpSession.class);
 
-		Map<String, String> attributes = row.getMap("attributes", String.class, String.class);
-		CassandraHttpSession result = new CassandraHttpSession(id);
-		result.setCreationTime(creationTime);
-		result.setLastAccessedTime(lastAccessed);
-		result.setMaxInactiveIntervalInSeconds(maxInactiveIntervalInSeconds);
-		this.sessionAttributeDeserializer.inflateSession(attributes, result);
-		result.onSave();
 		return result;
 	}
 
-	public void delete(String id) {
-		CassandraHttpSession session = getSession(id);
+	@Override
+	public void deleteById(String id) {
+		CassandraHttpSession session = findById(id);
 		Statement delete = QueryBuilder.delete().from(this.tableName)
 				.where(QueryBuilder.eq("id", UUID.fromString(id)));
 		String principalName = session.getSavedPrincipalName();
@@ -275,9 +261,7 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 			batchStatement.setConsistencyLevel(this.consistencyLevel);
 			this.cassandraOperations.execute(batchStatement);
 		}
-
 	}
-
 
 	public Map<String, CassandraHttpSession> findByIndexNameAndIndexValue(String indexName, String indexValue) {
 		Select select = QueryBuilder.select("id")
@@ -287,9 +271,9 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 		List<UUID> uuids = this.cassandraOperations.queryForList(select, UUID.class);
 		Map<String, CassandraHttpSession> result = new HashMap<String, CassandraHttpSession>();
 		for (UUID id : uuids) {
-			CassandraHttpSession session = getSession(id.toString());
+			CassandraHttpSession session = findById(id.toString());
 			if (session != null) {
-				result.put(id.toString(), getSession(id.toString()));
+				result.put(id.toString(), findById(id.toString()));
 			}
 		}
 		return result;
@@ -302,8 +286,9 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 	 * This is done so that we know if we need to insert/delete index entries when the session is saved.
 	 *
 	 * @author Andrew Fitzgerald
+	 * @author Rubén Salinas
 	 */
-	static class CassandraHttpSession implements ExpiringSession {
+	static class CassandraHttpSession implements Session {
 
 		private String savedPrincipalName = null;
 		private String currentPrincipalName = null;
@@ -339,24 +324,44 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 			return this.delegate.getId();
 		}
 
-		public long getCreationTime() {
+		@Override
+		public String changeSessionId() {
+			return null;
+		}
+
+		public Instant getCreationTime() {
 			return this.delegate.getCreationTime();
 		}
 
+		@Override
+		public void setLastAccessedTime(Instant instant) {
+
+		}
+
 		public void setCreationTime(long creationTime) {
-			this.delegate.setCreationTime(creationTime);
+			this.delegate.setCreationTime(Instant.ofEpochMilli(creationTime));
 		}
 
 		public <T> T getAttribute(String attributeName) {
 			return this.delegate.getAttribute(attributeName);
 		}
 
-		public long getLastAccessedTime() {
+		public Instant getLastAccessedTime() {
 			return this.delegate.getLastAccessedTime();
 		}
 
+		@Override
+		public void setMaxInactiveInterval(Duration duration) {
+
+		}
+
+		@Override
+		public Duration getMaxInactiveInterval() {
+			return null;
+		}
+
 		public void setLastAccessedTime(long lastAccessedTime) {
-			this.delegate.setLastAccessedTime(lastAccessedTime);
+			this.delegate.setLastAccessedTime(Instant.ofEpochMilli(lastAccessedTime));
 		}
 
 		public Set<String> getAttributeNames() {
@@ -369,11 +374,11 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 		}
 
 		public int getMaxInactiveIntervalInSeconds() {
-			return this.delegate.getMaxInactiveIntervalInSeconds();
+			return new Long(this.delegate.getMaxInactiveInterval().getSeconds()).intValue();
 		}
 
 		public void setMaxInactiveIntervalInSeconds(int interval) {
-			this.delegate.setMaxInactiveIntervalInSeconds(interval);
+			this.delegate.setMaxInactiveInterval(Duration.ofSeconds(interval));
 		}
 
 		public void removeAttribute(String attributeName) {
@@ -390,7 +395,6 @@ public class CassandraSessionRepository implements FindByIndexNameSessionReposit
 
 	/**
 	 * Resolves the Spring Security principal name.
-	 * Copy pasted from ${@link JdbcOperationsSessionRepository} until it is extracted to a common class.
 	 * https://github.com/spring-projects/spring-session/pull/557
 	 *
 	 * @author Vedran Pavic
