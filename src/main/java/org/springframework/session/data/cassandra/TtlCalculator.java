@@ -17,19 +17,19 @@
 package org.springframework.session.data.cassandra;
 
 
-import org.springframework.session.Session;
+import org.springframework.session.ExpiringSession;
 
 /**
- * Calculate the time to live in seconds for a given {@link Session}.
+ * Calculate the time to live in seconds for a given {@link ExpiringSession}.
  * @author Andrew Fitzgerald
  * @author Rubén Salinas
  */
 public class TtlCalculator {
 
-	public int calculateTtlInSeconds(long currentTime, Session session) {
-		long millisSinceAccess = currentTime - session.getLastAccessedTime().toEpochMilli();
+	public int calculateTtlInSeconds(long currentTime, ExpiringSession session) {
+		long millisSinceAccess = currentTime - session.getLastAccessedTime();
 		long secondsSinceAccess = millisSinceAccess / 1000;
-		long secondsToLive = session.getMaxInactiveInterval().toMillis() - secondsSinceAccess;
+		long secondsToLive = session.getMaxInactiveIntervalInSeconds() - secondsSinceAccess;
 		if (secondsToLive <= 0) {
 			throw new IllegalArgumentException("Session has already expired");
 		}
